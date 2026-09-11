@@ -33,6 +33,39 @@ This project implements a secure interactive CLI authentication system with:
 - Database migrations
 - Unit tests for core authentication and security logic
 
+## Security Features
+
+- Passwords are securely hashed using bcrypt.
+- Session-based authentication using Bearer tokens.
+- Configurable session expiration.
+- Optional TOTP-based two-factor authentication.
+- Account lockout after repeated failed login attempts.
+- Configurable maximum login attempts and lockout duration.
+- Failed login attempts are reset after a successful authentication.
+- Protected API endpoints require a valid session.
+
+### Account Lockout
+
+The application protects against repeated password guessing attempts.
+
+By default, after 5 consecutive failed login attempts, the account is temporarily locked for 15 minutes.
+
+Example:
+
+```text
+Attempt 1 → invalid username or password
+Attempt 2 → invalid username or password
+Attempt 3 → invalid username or password
+Attempt 4 → invalid username or password
+Attempt 5 → invalid username or password
+
+Correct password while locked:
+→ HTTP 429
+→ {"error":"account is temporarily locked"}
+
+
+```
+
 ## Tech Stack
 
 - **Go**
