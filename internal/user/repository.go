@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -128,4 +129,70 @@ func isUniqueViolation(err error) bool {
 	}
 
 	return pgErr.Code == "23505"
+}
+
+func (r *Repository) IncrementFailedAttempts(ctx context.Context, userID int64, lockDuration time.Duration, maxAttempts int) error {
+	const query = `
+		UPDATE users
+		SET
+			failed_login_attempts = failed_login_attempts + 1,
+			locked_until = CASE
+							WHEN failed_login_attempts + 1 >= $2
+							THEN NOW() + ($3 * INTERVAL '1 second')
+							ELSE locked_until
+						   END
+		WHERE id = $1
+	`
+
+	_, err := r.db.Exec(
+		ctx,
+		query,
+		userID,
+		maxAttempts,
+		lockDuration.Seconds(),
+	)
+
+	if err != nil {
+		return fmt.Errorf("increment failed attempts: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Repository) ResetFailedAttempts(
+	ctx context.Context,
+	userID int64,
+) error {
+	const query = `
+		UPDATE users
+		SET
+			failed_login_attempts = 0,
+			locked_until = NULL,
+			last_login_at = NOW()
+		WHERE id = $1
+	`
+
+	_, err := r.db.Exec(ctx, query, userID)
+	if err != nil {
+		return fmt.Errorf("reset failed attempts: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Repository) DeleteByUsername(
+	ctx context.Context,
+	username string,
+) error {
+	const query = `
+		DELETE FROM users
+		WHERE username = $1
+	`
+
+	_, err := r.db.Exec(ctx, query, username)
+	if err != nil {
+		return fmt.Errorf("delete user by username: %w", err)
+	}
+
+	return nil
 }

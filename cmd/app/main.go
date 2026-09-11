@@ -6,7 +6,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/JangidRkt08/go-cli-auth/internal/auth"
 	"github.com/JangidRkt08/go-cli-auth/internal/database"
+	"github.com/JangidRkt08/go-cli-auth/internal/session"
+	"github.com/JangidRkt08/go-cli-auth/internal/user"
 )
 
 func main() {
@@ -20,6 +23,14 @@ func main() {
 		logger.Fatalf("database initialization failed: %v", err)
 	}
 	defer pool.Close()
+	userRepository := user.NewRepository(pool)
+	sessionRepository := session.NewRepository(pool)
+
+	_ = auth.NewService(
+		userRepository,
+		sessionRepository,
+	)
 
 	logger.Println("database connection successful")
+	logger.Println("application initialization successful")
 }
