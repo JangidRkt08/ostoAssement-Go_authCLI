@@ -44,6 +44,70 @@ This project implements a secure interactive CLI authentication system with:
 - Failed login attempts are reset after a successful authentication.
 - Protected API endpoints require a valid session.
 
+
+## Two-Factor Authentication (2FA)
+
+The application supports optional TOTP-based two-factor authentication and is compatible with Google Authenticator and other standard TOTP authenticator apps.
+
+### Enable 2FA
+
+1. Start the application and log in:
+
+```text
+auth> login
+Username: test2
+Password: ********
+TOTP code (press Enter if disabled):
+Login successful.
+```
+2. Enable 2FA
+```text
+auth> enable-2fa
+2FA setup generated.
+Secret: <TOTP_SECRET>
+Authenticator URL: otpauth://totp/...
+Enter the 6-digit code from your authenticator app: <CODE>
+Two-factor authentication enabled successfully.
+
+```
+3. Add the generated secret or otpauth:// URL to Google Authenticator (or another TOTP-compatible authenticator).
+
+### Login with 2FA
+
+After 2FA is enabled, logging in without a code is rejected:
+```text
+auth> login
+Username: test2
+Password: ********
+TOTP code (press Enter if disabled):
+error: MFA code required
+```
+
+- Provide the current 6-digit code from the authenticator:
+```
+auth> login
+Username: test2
+Password: ********
+TOTP code (press Enter if disabled): 123456
+Login successful.
+
+```
+
+### Disable 2FA
+
+After logging in:
+```text
+auth> disable-2fa
+Two-factor authentication disabled.
+```
+
+- After disabling 2FA, a TOTP code is no longer required for login.
+
+### Also add your lockout test
+
+Since you just verified it, add this **right after the 2FA section**:
+
+
 ### Account Lockout
 
 The application protects against repeated password guessing attempts.
