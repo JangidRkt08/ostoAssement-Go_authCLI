@@ -34,6 +34,11 @@ type registerRequest struct {
 type loginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+	TOTPCode string `json:"totp_code,omitempty"`
+}
+
+type mfaVerifyRequest struct {
+	Code string `json:"code"`
 }
 
 type registerResponse struct {
@@ -118,6 +123,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		r.Context(),
 		req.Username,
 		req.Password,
+		req.TOTPCode,
 	)
 	if err != nil {
 		switch {
@@ -127,6 +133,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 				http.StatusTooManyRequests,
 				"account is temporarily locked",
 			)
+			return
 
 		case errors.Is(err, auth.ErrInvalidCredentials):
 			writeError(
@@ -134,6 +141,23 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 				http.StatusUnauthorized,
 				"invalid username or password",
 			)
+			return
+
+		case errors.Is(err, auth.ErrMFARequired):
+			writeError(
+				w,
+				http.StatusUnauthorized,
+				"MFA code required",
+			)
+			return
+
+		case errors.Is(err, auth.ErrInvalidMFACode):
+			writeError(
+				w,
+				http.StatusUnauthorized,
+				"invalid MFA code",
+			)
+			return
 
 		default:
 			writeError(
@@ -141,6 +165,16 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 				http.StatusInternalServerError,
 				"internal server error",
 			)
+		}
+
+		if errors.Is(err, auth.ErrMFARequired) {
+			writeError(w, http.StatusUnauthorized, "MFA code required")
+			return
+		}
+
+		if errors.Is(err, auth.ErrInvalidMFACode) {
+			writeError(w, http.StatusUnauthorized, "invalid MFA code")
+			return
 		}
 
 		return
@@ -152,6 +186,156 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		loginResponse{
 			SessionID: result.SessionID.String(),
 			ExpiresAt: result.ExpiresAt.UTC().Format("2006-01-02T15:04:05Z"),
+		},
+	)
+}
+
+func (h *Handler) SetupMFA(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	userID, ok := userIDFromContext(r.Context())
+	if !ok {
+		writeError(
+			w,
+			http.StatusUnauthorized,
+			"authentication required",
+		)
+		return
+	}
+
+	u, err := h.users.FindByID(
+		r.Context(),
+		userID,
+	)
+	if err != nil {
+		writeError(
+			w,
+			http.StatusInternalServerError,
+			"internal server error",
+		)
+		return
+	}
+
+	result, err := h.authService.SetupMFA(
+		r.Context(),
+		userID,
+		u.Username,
+	)
+	if err != nil {
+		writeError(
+			w,
+			http.StatusInternalServerError,
+			"failed to setup MFA",
+		)
+		return
+	}
+
+	writeJSON(
+		w,
+		http.StatusOK,
+		map[string]string{
+			"secret": result.Secret,
+			"url":    result.URL,
+		},
+	)
+}
+
+func (h *Handler) VerifyMFA(w http.ResponseWriter, r *http.Request) {
+	userID, ok := userIDFromContext(r.Context())
+	if !ok {
+		writeError(
+			w,
+			http.StatusUnauthorized,
+			"authentication required",
+		)
+		return
+	}
+
+	var req mfaVerifyRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(
+			w,
+			http.StatusBadRequest,
+			"invalid JSON",
+		)
+		return
+	}
+
+	req.Code = strings.TrimSpace(req.Code)
+
+	if len(req.Code) != 6 {
+		writeError(
+			w,
+			http.StatusBadRequest,
+			"invalid MFA code",
+		)
+		return
+	}
+
+	if err := h.authService.VerifyAndEnableMFA(
+		r.Context(),
+		userID,
+		req.Code,
+	); err != nil {
+		if errors.Is(err, auth.ErrInvalidMFACode) {
+			writeError(
+				w,
+				http.StatusUnauthorized,
+				"invalid MFA code",
+			)
+			return
+		}
+
+		writeError(
+			w,
+			http.StatusInternalServerError,
+			"failed to enable MFA",
+		)
+		return
+	}
+
+	writeJSON(
+		w,
+		http.StatusOK,
+		map[string]bool{
+			"mfa_enabled": true,
+		},
+	)
+}
+
+func (h *Handler) DisableMFA(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	userID, ok := userIDFromContext(r.Context())
+	if !ok {
+		writeError(
+			w,
+			http.StatusUnauthorized,
+			"authentication required",
+		)
+		return
+	}
+
+	if err := h.authService.DisableMFA(
+		r.Context(),
+		userID,
+	); err != nil {
+		writeError(
+			w,
+			http.StatusInternalServerError,
+			"failed to disable MFA",
+		)
+		return
+	}
+
+	writeJSON(
+		w,
+		http.StatusOK,
+		map[string]bool{
+			"mfa_enabled": false,
 		},
 	)
 }

@@ -237,3 +237,60 @@ func (r *Repository) FindByID(ctx context.Context, id int64) (*User, error) {
 
 	return &u, nil
 }
+
+func (r *Repository) SetTOTPSecret(
+	ctx context.Context,
+	userID int64,
+	secret string,
+) error {
+	const query = `
+		UPDATE users
+		SET totp_secret = $1
+		WHERE id = $2
+	`
+
+	_, err := r.db.Exec(ctx, query, secret, userID)
+	if err != nil {
+		return fmt.Errorf("set totp secret: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Repository) EnableMFA(
+	ctx context.Context,
+	userID int64,
+) error {
+	const query = `
+		UPDATE users
+		SET mfa_enabled = TRUE
+		WHERE id = $1
+	`
+
+	_, err := r.db.Exec(ctx, query, userID)
+	if err != nil {
+		return fmt.Errorf("enable MFA: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Repository) DisableMFA(
+	ctx context.Context,
+	userID int64,
+) error {
+	const query = `
+		UPDATE users
+		SET
+			mfa_enabled = FALSE,
+			totp_secret = NULL
+		WHERE id = $1
+	`
+
+	_, err := r.db.Exec(ctx, query, userID)
+	if err != nil {
+		return fmt.Errorf("disable MFA: %w", err)
+	}
+
+	return nil
+}

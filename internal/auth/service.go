@@ -11,6 +11,8 @@ import (
 	"github.com/JangidRkt08/go-cli-auth/internal/session"
 	"github.com/JangidRkt08/go-cli-auth/internal/user"
 	"github.com/google/uuid"
+	"github.com/pquerna/otp"
+	"github.com/pquerna/otp/totp"
 )
 
 var (
@@ -18,6 +20,8 @@ var (
 	ErrInvalidPassword    = errors.New("invalid password")
 	ErrInvalidCredentials = errors.New("invalid username or password")
 	ErrAccountLocked      = errors.New("account is temporarily locked")
+	ErrMFARequired        = errors.New("MFA code required")
+	ErrInvalidMFACode     = errors.New("invalid MFA code")
 )
 
 const (
@@ -25,6 +29,11 @@ const (
 	lockoutDuration  = 15 * time.Minute
 	sessionDuration  = 30 * time.Minute
 )
+
+type MFASetupResult struct {
+	Secret string
+	URL    string
+}
 
 type LoginResult struct {
 	SessionID uuid.UUID
@@ -97,7 +106,7 @@ func validatePassword(password string) error {
 	return nil
 }
 
-func (s *Service) Login(ctx context.Context, username string, password string) (*LoginResult, error) {
+func (s *Service) Login(ctx context.Context, username string, password string, totpCode string) (*LoginResult, error) {
 	username = strings.TrimSpace(username)
 
 	u, err := s.users.FindByUsername(ctx, username)
@@ -126,6 +135,20 @@ func (s *Service) Login(ctx context.Context, username string, password string) (
 		return nil, ErrInvalidCredentials
 	}
 
+	if u.MFAEnabled {
+		if strings.TrimSpace(totpCode) == "" {
+			return nil, ErrMFARequired
+		}
+
+		if u.TOTPSecret == nil ||
+			!totp.Validate(
+				strings.TrimSpace(totpCode),
+				*u.TOTPSecret,
+			) {
+			return nil, ErrInvalidMFACode
+		}
+	}
+
 	if err := s.users.ResetFailedAttempts(ctx, u.ID); err != nil {
 		return nil, fmt.Errorf("reset login attempts: %w", err)
 	}
@@ -143,4 +166,72 @@ func (s *Service) Login(ctx context.Context, username string, password string) (
 		SessionID: newSession.ID,
 		ExpiresAt: newSession.ExpiresAt,
 	}, nil
+}
+
+func (s *Service) SetupMFA(
+	ctx context.Context,
+	userID int64,
+	username string,
+) (*MFASetupResult, error) {
+	key, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      "GoCLIAuth",
+		AccountName: username,
+		Period:      30,
+		SecretSize:  20,
+		Digits:      otp.DigitsSix,
+		Algorithm:   otp.AlgorithmSHA1,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("generate TOTP secret: %w", err)
+	}
+
+	secret := key.Secret()
+
+	if err := s.users.SetTOTPSecret(
+		ctx,
+		userID,
+		secret,
+	); err != nil {
+		return nil, err
+	}
+
+	return &MFASetupResult{
+		Secret: secret,
+		URL:    key.URL(),
+	}, nil
+}
+
+func (s *Service) VerifyAndEnableMFA(
+	ctx context.Context,
+	userID int64,
+	code string,
+) error {
+	u, err := s.findUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	if u.TOTPSecret == nil || *u.TOTPSecret == "" {
+		return errors.New("MFA setup required")
+	}
+
+	if !totp.Validate(code, *u.TOTPSecret) {
+		return ErrInvalidMFACode
+	}
+
+	return s.users.EnableMFA(ctx, userID)
+}
+
+func (s *Service) DisableMFA(
+	ctx context.Context,
+	userID int64,
+) error {
+	return s.users.DisableMFA(ctx, userID)
+}
+
+func (s *Service) findUserByID(
+	ctx context.Context,
+	userID int64,
+) (*user.User, error) {
+	return s.users.FindByID(ctx, userID)
 }

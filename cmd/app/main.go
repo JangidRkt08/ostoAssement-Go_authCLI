@@ -44,6 +44,17 @@ func main() {
 		api.WithAuthentication(sessionRepository, http.HandlerFunc(handler.Me)))
 
 	mux.HandleFunc("POST /api/v1/auth/logout", handler.Logout)
+	mux.Handle("POST /api/v1/auth/mfa/setup",
+		api.WithAuthentication(sessionRepository, http.HandlerFunc(handler.SetupMFA)),
+	)
+
+	mux.Handle("POST /api/v1/auth/mfa/verify",
+		api.WithAuthentication(sessionRepository, http.HandlerFunc(handler.VerifyMFA)),
+	)
+
+	mux.Handle("POST /api/v1/auth/mfa/disable",
+		api.WithAuthentication(sessionRepository, http.HandlerFunc(handler.DisableMFA)),
+	)
 
 	server := &http.Server{
 		Addr:              ":8080",
