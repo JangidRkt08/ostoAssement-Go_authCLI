@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/JangidRkt08/go-cli-auth/internal/api"
 	"github.com/JangidRkt08/go-cli-auth/internal/auth"
+	"github.com/JangidRkt08/go-cli-auth/internal/cli"
 	"github.com/JangidRkt08/go-cli-auth/internal/database"
 	"github.com/JangidRkt08/go-cli-auth/internal/session"
 	"github.com/JangidRkt08/go-cli-auth/internal/user"
@@ -65,10 +67,48 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 
+	go func() {
+		logger.Println("HTTP server listening on :8080")
+
+		if err := server.ListenAndServe(); err != nil &&
+			err != http.ErrServerClosed {
+			logger.Fatalf("HTTP server failed: %v", err)
+		}
+	}()
+
 	logger.Println("database connection successful")
-	logger.Println("HTTP server listening on :8080")
-	if err := server.ListenAndServe(); err != nil &&
-		err != http.ErrServerClosed {
-		logger.Fatalf("HTTP server failed: %v", err)
+
+	commandLine := cli.New()
+
+	commandLine.RegisterBuiltInCommands()
+
+	commandLine.RegisterCommand(cli.Command{
+		Name:        "help",
+		Description: "show available commands",
+		Handler: func(ctx context.Context, args []string) error {
+			fmt.Println("Available commands:")
+			fmt.Println("  register       Create a new account")
+			fmt.Println("  login          Login to your account")
+			fmt.Println("  whoami         Show current user")
+			fmt.Println("  enable-2fa     Enable two-factor authentication")
+			fmt.Println("  disable-2fa    Disable two-factor authentication")
+			fmt.Println("  logout         Logout")
+			fmt.Println("  help            Show this help")
+			fmt.Println("  exit            Exit the application")
+			return nil
+		},
+	})
+
+	commandLine.RegisterCommand(cli.Command{
+		Name:        "register",
+		Description: "Create a new account",
+		Handler: func(ctx context.Context, args []string) error {
+			return commandLine.Register(ctx, args)
+		},
+	})
+
+	if err := commandLine.Run(context.Background()); err != nil {
+		logger.Fatalf("CLI failed: %v", err)
 	}
+
 }
