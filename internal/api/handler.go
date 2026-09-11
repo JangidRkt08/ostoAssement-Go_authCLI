@@ -7,16 +7,22 @@ import (
 	"strings"
 
 	"github.com/JangidRkt08/go-cli-auth/internal/auth"
+	"github.com/JangidRkt08/go-cli-auth/internal/session"
 	"github.com/JangidRkt08/go-cli-auth/internal/user"
+	"github.com/google/uuid"
 )
 
 type Handler struct {
 	authService *auth.Service
+	users       *user.Repository
+	sessions    *session.Repository
 }
 
-func NewHandler(authService *auth.Service) *Handler {
+func NewHandler(authService *auth.Service, users *user.Repository, sessions *session.Repository) *Handler {
 	return &Handler{
 		authService: authService,
+		users:       users,
+		sessions:    sessions,
 	}
 }
 
@@ -38,6 +44,11 @@ type registerResponse struct {
 type loginResponse struct {
 	SessionID string `json:"session_id"`
 	ExpiresAt string `json:"expires_at"`
+}
+
+type meResponse struct {
+	ID       int64  `json:"id"`
+	Username string `json:"username"`
 }
 
 type errorResponse struct {
@@ -184,6 +195,85 @@ func decodeJSON(
 	}
 
 	return nil
+}
+
+func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
+	userID, ok := userIDFromContext(r.Context())
+	if !ok {
+		writeError(
+			w,
+			http.StatusUnauthorized,
+			"authentication required",
+		)
+		return
+	}
+
+	u, err := h.users.FindByID(r.Context(), userID)
+	if err != nil {
+		if errors.Is(err, user.ErrUserNotFound) {
+			writeError(
+				w,
+				http.StatusUnauthorized,
+				"user not found",
+			)
+			return
+		}
+
+		writeError(
+			w,
+			http.StatusInternalServerError,
+			"internal server error",
+		)
+		return
+	}
+
+	writeJSON(
+		w,
+		http.StatusOK,
+		meResponse{
+			ID:       u.ID,
+			Username: u.Username,
+		},
+	)
+}
+
+func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	authHeader := r.Header.Get("Authorization")
+	parts := strings.Fields(authHeader)
+
+	if len(parts) != 2 ||
+		!strings.EqualFold(parts[0], "Bearer") {
+		writeError(
+			w,
+			http.StatusUnauthorized,
+			"invalid authorization header",
+		)
+		return
+	}
+
+	sessionID, err := uuid.Parse(parts[1])
+	if err != nil {
+		writeError(
+			w,
+			http.StatusUnauthorized,
+			"invalid session",
+		)
+		return
+	}
+
+	if err := h.sessions.Delete(
+		r.Context(),
+		sessionID,
+	); err != nil {
+		writeError(
+			w,
+			http.StatusInternalServerError,
+			"internal server error",
+		)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func writeJSON(

@@ -33,12 +33,17 @@ func main() {
 		sessionRepository,
 	)
 
-	handler := api.NewHandler(authService)
+	handler := api.NewHandler(authService, userRepository, sessionRepository)
 
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("POST /api/v1/auth/register", handler.Register)
 	mux.HandleFunc("POST /api/v1/auth/login", handler.Login)
+
+	mux.Handle("GET /api/v1/me",
+		api.WithAuthentication(sessionRepository, http.HandlerFunc(handler.Me)))
+
+	mux.HandleFunc("POST /api/v1/auth/logout", handler.Logout)
 
 	server := &http.Server{
 		Addr:              ":8080",

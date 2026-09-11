@@ -196,3 +196,44 @@ func (r *Repository) DeleteByUsername(
 
 	return nil
 }
+
+func (r *Repository) FindByID(ctx context.Context, id int64) (*User, error) {
+	const query = `
+		SELECT
+			id,
+			username,
+			password_hash,
+			totp_secret,
+			mfa_enabled,
+			failed_login_attempts,
+			locked_until,
+			created_at,
+			last_login_at
+		FROM users
+		WHERE id = $1
+	`
+
+	var u User
+
+	err := r.db.QueryRow(ctx, query, id).Scan(
+		&u.ID,
+		&u.Username,
+		&u.PasswordHash,
+		&u.TOTPSecret,
+		&u.MFAEnabled,
+		&u.FailedLoginAttempts,
+		&u.LockedUntil,
+		&u.CreatedAt,
+		&u.LastLoginAt,
+	)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrUserNotFound
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("find user by id: %w", err)
+	}
+
+	return &u, nil
+}
